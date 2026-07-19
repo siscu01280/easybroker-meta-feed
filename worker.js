@@ -204,8 +204,8 @@ function createListingXml(property) {
 
       return `    <image>
       <url>${escapeXml(imageUrl)}</url>
+      <tag>property</tag>
     </image>`;
-    })
     .filter(Boolean)
     .join("\n");
 
@@ -215,7 +215,7 @@ function createListingXml(property) {
       : "for_sale";
 
   const amount = normalizeNumber(operation.amount);
-  const currency = operation.currency || "MXN";
+  const currency = "MXN";
   const price = `${amount} ${currency}`;
 
   const bedrooms = normalizeNumber(property.bedrooms);
@@ -242,26 +242,25 @@ function createListingXml(property) {
   return `  <listing>
     <home_listing_id>${escapeXml(publicId)}</home_listing_id>
     <name>${escapeXml(title)}</name>
-    <availability>available</availability>
-    <listing_type>${listingType}</listing_type>
+    <availability>for_sale</availability>
     <property_type>${mapPropertyType(property.property_type)}</property_type>
     <price>${escapeXml(price)}</price>
     <url>${escapeXml(propertyUrl)}</url>
     <description>${escapeXml(description)}</description>
-    <address>
-      <addr1>${escapeXml(location.street || "")}</addr1>
-      <city>${escapeXml(location.city || "")}</city>
-      <region>${escapeXml(location.region || "")}</region>
-      <postal_code>${escapeXml(location.postal_code || "")}</postal_code>
-      <country>MX</country>
-    </address>
+    <address format="simple">
+  <component name="addr1">${escapeXml(location.street || "")}</component>
+  <component name="city">${escapeXml(location.city || "Querétaro")}</component>
+  <component name="region">${escapeXml(location.region || "Querétaro")}</component>
+  <component name="postal_code">${escapeXml(location.postal_code || "")}</component>
+  <component name="country">MX</component>
+</address>
     <latitude>${escapeXml(location.latitude || "")}</latitude>
     <longitude>${escapeXml(location.longitude || "")}</longitude>
     <neighborhood>${escapeXml(location.city_area || "")}</neighborhood>
     <num_beds>${bedrooms}</num_beds>
     <num_baths>${bathrooms}</num_baths>
     <num_units>1</num_units>
-    <area_size>${area}</area_size>
+    <area_size>${Math.round(Number(area) || 0)}</area_size>
     <area_unit>sq_m</area_unit>
 ${imageXml}
   </listing>`;
