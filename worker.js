@@ -285,11 +285,10 @@ function createListingXml(property) {
     property.description ||
     title;
 
-  const propertyUrl =
-    property.url ||
-    `https://www.apexrealty.mx/property/${encodeURIComponent(
-      publicId
-    )}`;
+ const propertyUrl =
+  property.public_url ||
+  property.url ||
+  `https://www.easybroker.com/mx/listings/${encodeURIComponent(publicId)}`;
 
   const city =
     location.city ||
