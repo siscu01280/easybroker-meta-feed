@@ -21,16 +21,26 @@ export default {
       }
 
       if (url.pathname === "/debug") {
-        const properties = await getAllProperties(env.EASYBROKER_API_KEY);
+        const summaries = await getAllProperties(env.EASYBROKER_API_KEY);
+        const properties = await getPropertyDetails(
+          summaries.slice(0, 3),
+          env.EASYBROKER_API_KEY
+        );
 
         return jsonResponse({
-          total: properties.length,
-          properties: properties.slice(0, 3)
+          total: summaries.length,
+          sample: properties
         });
       }
 
-      if (url.pathname === "/" || url.pathname === "/feed.xml") {
-        const summaries = await getAllProperties(env.EASYBROKER_API_KEY);
+      if (
+        url.pathname === "/" ||
+        url.pathname === "/feed.xml"
+      ) {
+        const summaries = await getAllProperties(
+          env.EASYBROKER_API_KEY
+        );
+
         const properties = await getPropertyDetails(
           summaries,
           env.EASYBROKER_API_KEY
@@ -43,7 +53,8 @@ export default {
           headers: {
             "Content-Type": "application/xml; charset=utf-8",
             "Cache-Control": "public, max-age=1800",
-            "Content-Disposition": 'inline; filename="apex-realty-feed.xml"',
+            "Content-Disposition":
+              'inline; filename="apex-realty-feed.xml"',
             "Access-Control-Allow-Origin": "*"
           }
         });
@@ -56,7 +67,10 @@ export default {
       return jsonResponse(
         {
           status: "error",
-          message: error instanceof Error ? error.message : String(error)
+          message:
+            error instanceof Error
+              ? error.message
+              : String(error)
         },
         500
       );
@@ -68,27 +82,30 @@ async function getAllProperties(apiKey) {
   const properties = [];
   const limit = 50;
   let page = 1;
-  let continueLoading = true;
+  let keepLoading = true;
 
-  while (continueLoading && page <= 20) {
+  while (keepLoading && page <= 20) {
     const endpoint =
       `${EASYBROKER_API}/properties?page=${page}&limit=${limit}`;
 
     const data = await easyBrokerRequest(endpoint, apiKey);
-    const content = Array.isArray(data.content) ? data.content : [];
+    const content = Array.isArray(data.content)
+      ? data.content
+      : [];
 
     properties.push(...content);
 
     const pagination = data.pagination || {};
+
     const totalPages =
       Number(pagination.total_pages) ||
       Number(pagination.pages) ||
       null;
 
     if (totalPages) {
-      continueLoading = page < totalPages;
+      keepLoading = page < totalPages;
     } else {
-      continueLoading = content.length === limit;
+      keepLoading = content.length === limit;
     }
 
     page += 1;
@@ -101,8 +118,15 @@ async function getPropertyDetails(summaries, apiKey) {
   const results = [];
   const batchSize = 5;
 
-  for (let index = 0; index < summaries.length; index += batchSize) {
-    const batch = summaries.slice(index, index + batchSize);
+  for (
+    let index = 0;
+    index < summaries.length;
+    index += batchSize
+  ) {
+    const batch = summaries.slice(
+      index,
+      index + batchSize
+    );
 
     const details = await Promise.all(
       batch.map(async (property) => {
@@ -117,7 +141,9 @@ async function getPropertyDetails(summaries, apiKey) {
 
         try {
           return await easyBrokerRequest(
-            `${EASYBROKER_API}/properties/${encodeURIComponent(propertyId)}`,
+            `${EASYBROKER_API}/properties/${encodeURIComponent(
+              propertyId
+            )}`,
             apiKey
           );
         } catch (error) {
@@ -143,7 +169,7 @@ async function easyBrokerRequest(endpoint, apiKey) {
     headers: {
       "X-Authorization": apiKey,
       Accept: "application/json",
-      "User-Agent": "APEX-Realty-Meta-Feed/1.0"
+      "User-Agent": "APEX-Realty-Meta-Feed/2.0"
     }
   });
 
@@ -151,7 +177,10 @@ async function easyBrokerRequest(endpoint, apiKey) {
     const body = await response.text();
 
     throw new Error(
-      `EasyBroker respondió ${response.status}: ${body.slice(0, 300)}`
+      `EasyBroker respondió ${response.status}: ${body.slice(
+        0,
+        300
+      )}`
     );
   }
 
@@ -187,6 +216,7 @@ function createListingXml(property) {
   }
 
   const location = property.location || {};
+
   const images = Array.isArray(property.property_images)
     ? property.property_images
     : Array.isArray(property.images)
@@ -198,27 +228,47 @@ function createListingXml(property) {
       const imageUrl =
         typeof image === "string"
           ? image
-          : image.url || image.original || image.image_url;
+          : image.url ||
+            image.original ||
+            image.image_url;
 
-      if (!imageUrl) return "";
+      if (!imageUrl) {
+        return "";
+      }
 
       return `    <image>
       <url>${escapeXml(imageUrl)}</url>
-      <tag>property</tag>
     </image>`;
+    })
     .filter(Boolean)
     .join("\n");
 
-  const listingType =
-    operation.type === "rental" || operation.type === "rent"
+  if (!imageXml) {
+    return "";
+  }
+
+  const availability =
+    operation.type === "rental" ||
+    operation.type === "rent"
       ? "for_rent"
       : "for_sale";
 
   const amount = normalizeNumber(operation.amount);
-  const currency = "MXN";
+
+  if (amount <= 0) {
+    return "";
+  }
+
+  const currency =
+    String(operation.currency || "MXN").toUpperCase();
+
   const price = `${amount} ${currency}`;
 
-  const bedrooms = normalizeNumber(property.bedrooms);
+  const bedrooms = Math.max(
+    0,
+    Math.round(normalizeNumber(property.bedrooms))
+  );
+
   const bathrooms =
     normalizeNumber(property.bathrooms) +
     normalizeNumber(property.half_bathrooms) * 0.5;
@@ -237,37 +287,81 @@ function createListingXml(property) {
 
   const propertyUrl =
     property.url ||
-    `https://www.apexrealty.mx/property/${encodeURIComponent(publicId)}`;
+    `https://www.apexrealty.mx/property/${encodeURIComponent(
+      publicId
+    )}`;
+
+  const city =
+    location.city ||
+    inferCity(location.region, location.city_area) ||
+    "Querétaro";
+
+  const region =
+    location.region ||
+    inferRegion(city) ||
+    "Querétaro";
+
+  const addressLine =
+    location.street ||
+    location.city_area ||
+    title;
+
+  const postalCode =
+    location.postal_code || "";
+
+  const neighborhood =
+    location.city_area || "";
 
   return `  <listing>
     <home_listing_id>${escapeXml(publicId)}</home_listing_id>
     <name>${escapeXml(title)}</name>
-    <availability>for_sale</availability>
-    <property_type>${mapPropertyType(property.property_type)}</property_type>
+    <availability>${availability}</availability>
+    <property_type>${mapPropertyType(
+      property.property_type
+    )}</property_type>
     <price>${escapeXml(price)}</price>
     <url>${escapeXml(propertyUrl)}</url>
     <description>${escapeXml(description)}</description>
     <address format="simple">
-  <component name="addr1">${escapeXml(location.street || "")}</component>
-  <component name="city">${escapeXml(location.city || "Querétaro")}</component>
-  <component name="region">${escapeXml(location.region || "Querétaro")}</component>
-  <component name="postal_code">${escapeXml(location.postal_code || "")}</component>
-  <component name="country">MX</component>
-</address>
-    <latitude>${escapeXml(location.latitude || "")}</latitude>
-    <longitude>${escapeXml(location.longitude || "")}</longitude>
-    <neighborhood>${escapeXml(location.city_area || "")}</neighborhood>
+      <component name="addr1">${escapeXml(
+        addressLine
+      )}</component>
+      <component name="city">${escapeXml(
+        city
+      )}</component>
+      <component name="region">${escapeXml(
+        region
+      )}</component>
+      <component name="postal_code">${escapeXml(
+        postalCode
+      )}</component>
+      <component name="country">MX</component>
+    </address>
+    <latitude>${escapeXml(
+      location.latitude || ""
+    )}</latitude>
+    <longitude>${escapeXml(
+      location.longitude || ""
+    )}</longitude>
+    <neighborhood>${escapeXml(
+      neighborhood
+    )}</neighborhood>
     <num_beds>${bedrooms}</num_beds>
-    <num_baths>${bathrooms}</num_baths>
+    <num_baths>${formatNumber(
+      bathrooms
+    )}</num_baths>
     <num_units>1</num_units>
-    <area_size>${Math.round(Number(area) || 0)}</area_size>
+    <area_size>${Math.round(area)}</area_size>
     <area_unit>sq_m</area_unit>
 ${imageXml}
   </listing>`;
 }
 
 function selectOperation(operations) {
-  if (!Array.isArray(operations) || operations.length === 0) {
+  if (
+    !Array.isArray(operations) ||
+    operations.length === 0
+  ) {
     return null;
   }
 
@@ -285,7 +379,9 @@ function selectOperation(operations) {
 }
 
 function mapPropertyType(propertyType) {
-  const value = String(propertyType || "").toLowerCase();
+  const value = String(
+    propertyType || ""
+  ).toLowerCase();
 
   if (
     value.includes("departamento") ||
@@ -327,10 +423,53 @@ function mapPropertyType(propertyType) {
   return "other";
 }
 
+function inferCity(region, cityArea) {
+  const text = `${region || ""} ${cityArea || ""}`
+    .toLowerCase();
+
+  if (text.includes("san miguel de allende")) {
+    return "San Miguel de Allende";
+  }
+
+  if (text.includes("corregidora")) {
+    return "Corregidora";
+  }
+
+  if (text.includes("el marqués")) {
+    return "El Marqués";
+  }
+
+  if (text.includes("huimilpan")) {
+    return "Huimilpan";
+  }
+
+  return "";
+}
+
+function inferRegion(city) {
+  const value = String(city || "").toLowerCase();
+
+  if (value.includes("san miguel de allende")) {
+    return "Guanajuato";
+  }
+
+  return "Querétaro";
+}
+
 function normalizeNumber(value) {
   const number = Number(value);
 
-  return Number.isFinite(number) ? number : 0;
+  return Number.isFinite(number)
+    ? number
+    : 0;
+}
+
+function formatNumber(value) {
+  const number = normalizeNumber(value);
+
+  return Number.isInteger(number)
+    ? String(number)
+    : number.toFixed(1);
 }
 
 function escapeXml(value) {
@@ -343,20 +482,25 @@ function escapeXml(value) {
 }
 
 function jsonResponse(data, status = 200) {
-  return new Response(JSON.stringify(data, null, 2), {
-    status,
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      "Access-Control-Allow-Origin": "*"
+  return new Response(
+    JSON.stringify(data, null, 2),
+    {
+      status,
+      headers: {
+        "Content-Type":
+          "application/json; charset=utf-8",
+        "Access-Control-Allow-Origin": "*"
+      }
     }
-  });
+  );
 }
 
 function textResponse(message, status = 200) {
   return new Response(message, {
     status,
     headers: {
-      "Content-Type": "text/plain; charset=utf-8"
+      "Content-Type":
+        "text/plain; charset=utf-8"
     }
   });
 }
